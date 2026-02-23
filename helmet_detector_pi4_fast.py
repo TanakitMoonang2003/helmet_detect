@@ -13,11 +13,11 @@ import os
 # ========== Configuration ==========
 # ใช้โมเดลแบบ Dynamic เพื่อรองรับ input หลายขนาด (320, 416, 640)
 MODEL_PATH = "helmet_detector_dynamic.onnx"
-CONF_THRESHOLD = 0.65  # เพิ่มจาก 0.5 เพื่อลดการตรวจจับที่ไม่จำเป็น
+CONF_THRESHOLD = 0.25  # ลดลงเนื่องจากโมเดลมีความมั่นใจต่ำ (max ~0.38)
 IOU_THRESHOLD = 0.45
-# ลด INPUT_SIZE ลงเหลือ 320 เพื่อให้รันบน CPU ของ Raspberry Pi ได้ลื่นขึ้นมาก
+# ลด INPUT_SIZE ลงเหลือ 256 เพื่อให้รันบน CPU ของ Raspberry Pi ได้ลื่นขึ้นมาก
 # (สามารถ override ได้ด้วย --input-size argument)
-INPUT_SIZE = 320
+INPUT_SIZE = 256
 
 # Class names
 CLASS_NAMES = {0: 'helmet', 1: 'nohelmet'}
@@ -43,7 +43,7 @@ class HelmetDetector:
         
         # ตั้งค่า Session Options เพื่อเพิ่มความเร็วบน Pi 4 (CPU only)
         opts = ort.SessionOptions()
-        opts.intra_op_num_threads = 4  # ใช้ครบ 4 Core ของ Pi 4
+        opts.intra_op_num_threads = 2  # ลดลงเพื่อประหยัด resource
         opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
@@ -60,7 +60,7 @@ class HelmetDetector:
         
         print(f"✅ Model loaded: {model_path}")
         print(f"⚡ Performance Mode: INPUT_SIZE={input_size}, CONF={conf_threshold}")
-        print(f"🧵 Threads: 4 (Optimized for Pi 4)")
+        print(f"🧵 Threads: 2 (Optimized for Pi 4)")
         
         # ทดสอบว่าโมเดลทำงานได้จริงหรือไม่
         self._test_model()
@@ -375,14 +375,14 @@ def main():
                        help='Output video path (optional)')
     parser.add_argument('--no-display', action='store_true',
                        help='Disable display (for headless Pi)')
-    parser.add_argument('--skip-frames', type=int, default=3,
-                       help='Process every Nth frame (default: 3 for high performance)')
+    parser.add_argument('--skip-frames', type=int, default=5,
+                       help='Process every Nth frame (default: 5 for high performance)')
     parser.add_argument('--low-res', action='store_true',
                        help='Use low resolution camera mode (320x240) for maximum FPS')
-    parser.add_argument('--cam-width', type=int, default=320,
-                       help='Camera capture width in pixels (default: 320)')
-    parser.add_argument('--cam-height', type=int, default=240,
-                       help='Camera capture height in pixels (default: 240)')
+    parser.add_argument('--cam-width', type=int, default=160,
+                       help='Camera capture width in pixels (default: 160)')
+    parser.add_argument('--cam-height', type=int, default=120,
+                       help='Camera capture height in pixels (default: 120)')
     parser.add_argument('--input-size', type=int, default=INPUT_SIZE,
                        choices=[192, 256, 320, 416, 640],
                        help='Model input size: 192=fastest, 256=ultra, 320=default, 640=accurate')
