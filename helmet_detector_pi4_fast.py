@@ -8,6 +8,7 @@ import numpy as np
 import time
 import argparse
 import onnxruntime as ort
+import os
 
 # ========== Configuration ==========
 # ใช้โมเดลแบบ Dynamic เพื่อรองรับ input หลายขนาด (320, 416, 640)
@@ -35,6 +36,11 @@ class HelmetDetector:
         print("📦 Loading ONNX model...")
         self.input_size = input_size
         
+        # ตรวจสอบว่าไฟล์โมเดลมีอยู่จริงหรือไม่
+        if not os.path.exists(model_path):
+            print(f"❌ Error: Model file not found: {model_path}")
+            raise FileNotFoundError(f"Model file not found: {model_path}")
+        
         # ตั้งค่า Session Options เพื่อเพิ่มความเร็วบน Pi 4 (CPU only)
         opts = ort.SessionOptions()
         opts.intra_op_num_threads = 4  # ใช้ครบ 4 Core ของ Pi 4
@@ -42,13 +48,59 @@ class HelmetDetector:
         opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
 
         # บังคับใช้ CPUExecutionProvider (ใน Pi ส่วนใหญ่มี provider ตัวนี้ตัวเดียว)
-        self.session = ort.InferenceSession(model_path, sess_options=opts, providers=["CPUExecutionProvider"])
+        try:
+            self.session = ort.InferenceSession(model_path, sess_options=opts, providers=["CPUExecutionProvider"])
+        except Exception as e:
+            print(f"❌ Error: Failed to load model: {e}")
+            raise RuntimeError(f"Failed to load model: {e}")
+        
         self.conf_threshold = conf_threshold
         self.input_name = self.session.get_inputs()[0].name
         self.output_names = [output.name for output in self.session.get_outputs()]
+        
         print(f"✅ Model loaded: {model_path}")
         print(f"⚡ Performance Mode: INPUT_SIZE={input_size}, CONF={conf_threshold}")
-        print(f"🧵 Threads: 4 (Optimized for Pi 4)\n")
+        print(f"🧵 Threads: 4 (Optimized for Pi 4)")
+        
+        # ทดสอบว่าโมเดลทำงานได้จริงหรือไม่
+        self._test_model()
+        print(f"🎯 Model test completed - Ready for detection!\n")
+    
+    def _test_model(self):
+        """ทดสอบว่าโมเดลสามารถทำงานได้จริง"""
+        print("🔍 Testing model functionality...")
+        
+        try:
+            # สร้าง dummy input สำหรับทดสอบ
+            dummy_input = np.random.rand(1, 3, self.input_size, self.input_size).astype(np.float32)
+            
+            # ทดสอบ inference
+            start_time = time.time()
+            outputs = self.session.run(self.output_names, {self.input_name: dummy_input})
+            inference_time = time.time() - start_time
+            
+            # ตรวจสอบ output
+            if len(outputs) > 0:
+                output_shape = outputs[0].shape
+                print(f"   📊 Output shape: {output_shape}")
+                print(f"   ⏱️  Test inference time: {inference_time*1000:.2f}ms")
+                
+                # ทดสอบ postprocess ด้วย dummy output
+                dummy_shape = (480, 640, 3)  # ขนาดภาพจริง
+                test_detections = self.postprocess(outputs, dummy_shape)
+                print(f"   🎯 Test detections: {len(test_detections)} objects found")
+                
+                if len(test_detections) > 0:
+                    print(f"   📋 Sample detection: {test_detections[0]['class_name']} ({test_detections[0]['confidence']:.3f})")
+                
+                print("   ✅ Model test PASSED")
+            else:
+                print("   ❌ Model test FAILED: No output")
+                raise RuntimeError("Model produced no output")
+                
+        except Exception as e:
+            print(f"   ❌ Model test FAILED: {e}")
+            raise RuntimeError(f"Model test failed: {e}")
     
     def preprocess(self, image):
         """Preprocess image for model input"""
@@ -151,8 +203,22 @@ def detect_video(source, output_path=None, show_display=True, skip_frames=3,
         input_size: Model input size (default: 320)
     """
     
+    # ตรวจสอบว่าโมเดลมีอยู่ก่อนเริ่ม
+    if not os.path.exists(MODEL_PATH):
+        print(f"❌ Error: Model file not found: {MODEL_PATH}")
+        print(f"🔍 Please ensure the model file exists in the current directory")
+        return
+    
+    print(f"🎯 Initializing helmet detection system...")
+    print(f"📁 Model file: {MODEL_PATH}")
+    
     # Initialize detector
-    detector = HelmetDetector(MODEL_PATH, CONF_THRESHOLD, input_size)
+    try:
+        detector = HelmetDetector(MODEL_PATH, CONF_THRESHOLD, input_size)
+        print(f"🚀 Detector initialized successfully!")
+    except Exception as e:
+        print(f"❌ Failed to initialize detector: {e}")
+        return
     
     # Open video
     cap = cv2.VideoCapture(source)
